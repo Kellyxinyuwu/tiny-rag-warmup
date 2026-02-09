@@ -1,8 +1,17 @@
 # Tiny RAG Warm-up
 
-PDF extraction and text chunking—the ingestion/splitting muscle for RAG. This is the feed for embeddings next week.
+**Status: Complete** — This week's ingestion/chunking phase is done. Ready for embeddings next week.
 
-## What it does
+## What this project did
+
+This project builds the **ingestion and splitting** muscle for RAG (Retrieval Augmented Generation):
+
+1. **Extract text** from a PDF — reads all pages and joins them into one string
+2. **Chunk the text** — splits it into fixed-size pieces (default 1000 chars) for embedding later
+
+These chunks are the feed for embeddings when you add the full RAG pipeline (vector DB, retrieval, LLM).
+
+### Functions
 
 - **`extract_text_from_pdf(path)`** — Reads a PDF and returns all page text as one string
 - **`simple_chunk(text, max_chars=1000)`** — Splits text into fixed-size chunks (no overlap)
@@ -10,12 +19,18 @@ PDF extraction and text chunking—the ingestion/splitting muscle for RAG. This 
 ## Setup
 
 ```bash
+python3 -m venv venv
+source venv/bin/activate   # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
 ## Get a sample PDF
 
-Download a 10-K from [SEC EDGAR](https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany) or use any long PDF. Save it as `sample_10k.pdf` in this folder.
+Save a long PDF as `sample_10k.pdf` in this folder. Options:
+
+- **Direct PDF:** [Alphabet 2024 10-K](https://abc.xyz/assets/77/51/9841ad5c4fbe85b4440c47a4df8d/goog-10-k-2024.pdf) — right-click → Save as
+- **SEC EDGAR:** [sec.gov/search-filings](https://www.sec.gov/search-filings) — search a company, find a 10-K, look for PDF attachments
+- Any long finance document from investor relations sites
 
 ## Run
 
@@ -24,6 +39,10 @@ python ingest.py
 ```
 
 Expected output: total chunk count and a preview of the first chunk.
+
+## What's next
+
+- **Next week:** Embed chunks, store in a vector DB, and build retrieval + LLM answering
 
 ---
 
