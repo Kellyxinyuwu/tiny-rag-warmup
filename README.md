@@ -2,6 +2,8 @@
 
 **Status:** Complete — Full pipeline: ingest → retrieve → RAG → API → evaluation.
 
+**Purpose:** This project is for **learning** — to understand RAG pipelines, chunking, embeddings, and retrieval. It is not production-ready. See [Learning Purpose & Gaps vs Production](#learning-purpose--gaps-vs-production) for what differs from enterprise use and what to learn next.
+
 A RAG (Retrieval Augmented Generation) project for financial documents (10-K filings). Uses **pgvector**, **Ollama**, and **SEC EDGAR** data. Designed to be AWS-ready later (Bedrock, pgvector on RDS).
 
 ---
@@ -19,7 +21,8 @@ A RAG (Retrieval Augmented Generation) project for financial documents (10-K fil
 9. [API](#api)
 10. [Evaluation](#evaluation)
 11. [Troubleshooting](#troubleshooting)
-12. [What's Next](#whats-next)
+12. [Learning Purpose & Gaps vs Production](#learning-purpose--gaps-vs-production)
+13. [What's Next](#whats-next)
 
 See **DATA_GUIDE.md** for SEC EDGAR details. See **INGEST_GUIDE.md** for ingestion setup. See **CODE_GUIDE.md** for a file-by-file code walkthrough.
 
@@ -325,6 +328,36 @@ uvicorn api:app --host 0.0.0.0 --port 8001
 ### Eval seems stuck
 
 Eval runs 50 questions; each takes ~10–20 seconds. Total ~10–15 minutes. Progress is printed as `[1/50]`, `[2/50]`, etc.
+
+---
+
+## Learning Purpose & Gaps vs Production
+
+This project is for **learning and prototyping**, not production. Below is what differs from enterprise RAG systems and what to study next.
+
+### Gaps vs. Production
+
+| Area | This Project | Production Expectation | What to Learn Next |
+|------|--------------|------------------------|--------------------|
+| **Auth** | No auth on API | API keys, OAuth, SSO | FastAPI middleware, JWT, OAuth2 |
+| **Security** | Secrets in `.env` | Secret manager (AWS Secrets Manager, Vault) | Secret management, least privilege |
+| **Reliability** | Single process, no retries | Load balancing, retries, circuit breakers | Resilience patterns, `tenacity`, `httpx` retries |
+| **Scalability** | In-process embedding | Separate embedding service | Microservices, async workers |
+| **LLM** | Local Ollama | Managed LLM (Bedrock, Azure OpenAI) with SLAs | AWS Bedrock, OpenAI API, fallbacks |
+| **Database** | Local pgvector | Managed pgvector (RDS) | RDS, connection pooling |
+| **Ingestion** | Manual `python ingest.py` | Scheduled pipelines, incremental updates | Airflow, Prefect, event-driven ingestion |
+| **Observability** | Minimal logging | Structured logs, metrics, tracing | OpenTelemetry, Prometheus, CloudWatch |
+| **Evaluation** | Keyword checks only | LLM-as-judge, human review, A/B tests | RAGAS, continuous eval, feedback loops |
+| **Compliance** | None | PII handling, audit logs, data residency | Data governance, retention policies |
+
+### Suggested Learning Path
+
+1. **Must-haves for production:** Auth, secret management, error handling, structured logging
+2. **Deployment:** Docker, container orchestration (ECS, EKS), CI/CD
+3. **Managed services:** Bedrock or Azure OpenAI for LLM; RDS with pgvector
+4. **Ingestion pipeline:** Scheduled jobs, incremental indexing, document versioning
+5. **Observability:** Metrics, tracing, alerting
+6. **Advanced RAG:** Re-ranking, hybrid search, query expansion
 
 ---
 
