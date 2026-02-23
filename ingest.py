@@ -1,33 +1,176 @@
 """
-Tiny RAG warm-up: PDF extraction and text chunking.
-This is the feed for embeddings next week.
+Tiny RAG ingestion: load 10-K txt files, chunk with overlap, embed, store in pgvector.
 """
-from pypdf import PdfReader
+import os
+from pathlib import Path
+
+import tiktoken
+
+# Paths
+SEC_FILINGS_DIR = Path("sec-edgar-filings")
+
+# Chunking
+CHUNK_SIZE_TOKENS = 400
+CHUNK_OVERLAP_TOKENS = 100
+
+# pgvector connection (override with env: DATABASE_URL)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/rag_db",
+)
 
 
-def extract_text_from_pdf(path: str) -> str:
-    """Extract all text from a PDF, one page at a time, joined by newlines."""
-    reader = PdfReader(path)
-    texts = []
-    for page in reader.pages:
-        texts.append(page.extract_text() or "")
-    return "\n".join(texts)
+def load_txt(path: Path) -> str:
+    """Load text from a file."""
+    return path.read_text(encoding="utf-8", errors="ignore")
 
 
-def simple_chunk(text: str, max_chars: int = 1000) -> list[str]:
-    """Split text into chunks of at most max_chars characters (no overlap)."""
+def find_filing_txt_files() -> list[tuple[Path, str]]:
+    """
+    Find all full-submission.txt files in sec-edgar-filings.
+    Returns list of (path, ticker) tuples.
+    """
+    if not SEC_FILINGS_DIR.exists():
+        return []
+
+    results = []
+    for ticker_dir in SEC_FILINGS_DIR.iterdir():
+        if not ticker_dir.is_dir():
+            continue
+        ten_k_dir = ticker_dir / "10-K"
+        if not ten_k_dir.exists():
+            continue
+        for accession_dir in ten_k_dir.iterdir():
+            if not accession_dir.is_dir():
+                continue
+            txt_file = accession_dir / "full-submission.txt"
+            if txt_file.exists():
+                results.append((txt_file, ticker_dir.name))
+    return results
+
+
+def chunk_with_overlap(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """
+    Split text into chunks by tokens, with overlap.
+    Uses tiktoken (cl100k_base) for token counting.
+    """
+    encoding = tiktoken.get_encoding("cl100k_base")
+    tokens = encoding.encode(text)
     chunks = []
     start = 0
-    while start < len(text):
-        end = min(start + max_chars, len(text))
-        chunks.append(text[start:end])
-        start = end
+    stride = chunk_size - overlap
+
+    while start < len(tokens):
+        end = min(start + chunk_size, len(tokens))
+        chunk_tokens = tokens[start:end]
+        chunk_text = encoding.decode(chunk_tokens)
+        if chunk_text.strip():
+            chunks.append(chunk_text)
+        start += stride
+        if start >= len(tokens):
+            break
+
     return chunks
 
 
+def embed_chunks(chunks: list[str]) -> list[list[float]]:
+    """Embed chunks using SentenceTransformers."""
+    from sentence_transformers import SentenceTransformer
+
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    embeddings = model.encode(chunks, show_progress_bar=True)
+    return embeddings.tolist()
+
+
+def get_embedding_dim() -> int:
+    """Return embedding dimension for all-MiniLM-L6-v2."""
+    return 384
+
+
+def init_pgvector(conn):
+    """Create extension and table if not exist."""
+    from pgvector.psycopg2 import register_vector
+
+    register_vector(conn)
+    cur = conn.cursor()
+    cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    cur.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS documents (
+            id bigserial PRIMARY KEY,
+            content text NOT NULL,
+            embedding vector({get_embedding_dim()}),
+            ticker text,
+            source text
+        )
+        """
+    )
+    cur.close()
+    conn.commit()
+
+
+def store_in_pgvector(
+    chunks: list[str],
+    embeddings: list[list[float]],
+    ticker: str,
+    source: str,
+) -> None:
+    """Store chunks and embeddings in pgvector."""
+    import numpy as np
+    import psycopg2
+
+    conn = psycopg2.connect(DATABASE_URL)
+    init_pgvector(conn)
+
+    cur = conn.cursor()
+    for content, embedding in zip(chunks, embeddings):
+        cur.execute(
+            """
+            INSERT INTO documents (content, embedding, ticker, source)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (content, np.array(embedding), ticker, source),
+        )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def ingest_all():
+    """Load filings, chunk, embed, and store in pgvector."""
+    files = find_filing_txt_files()
+    if not files:
+        print("No full-submission.txt files found in sec-edgar-filings/")
+        print("Run: python download_financial_docs.py")
+        return
+
+    print(f"Found {len(files)} filing(s)")
+
+    for path, ticker in files:
+        print(f"\nProcessing {ticker}...")
+        text = load_txt(path)
+        print(f"  Loaded {len(text):,} chars")
+
+        chunks = chunk_with_overlap(
+            text,
+            chunk_size=CHUNK_SIZE_TOKENS,
+            overlap=CHUNK_OVERLAP_TOKENS,
+        )
+        print(f"  Chunked into {len(chunks)} chunks")
+
+        embeddings = embed_chunks(chunks)
+        print(f"  Embedded {len(embeddings)} chunks")
+
+        store_in_pgvector(
+            chunks=chunks,
+            embeddings=embeddings,
+            ticker=ticker,
+            source=str(path),
+        )
+        print(f"  Stored in pgvector")
+
+    print("\nDone. Ready for retrieval.")
+
+
 if __name__ == "__main__":
-    pdf_path = "sample_10k.pdf"
-    text = extract_text_from_pdf(pdf_path)
-    chunks = simple_chunk(text, max_chars=1000)
-    print(f"Total chunks: {len(chunks)}")
-    print("First chunk preview:\n", chunks[0][:500] if chunks else "(no text)")
+    ingest_all()

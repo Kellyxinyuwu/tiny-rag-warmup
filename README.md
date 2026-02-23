@@ -1,159 +1,220 @@
-# Tiny RAG Warm-up
+# Tiny RAG — Financial Documents
 
-**Status: Complete** — This week's ingestion/chunking phase is done. Ready for embeddings next week.
+**Status:** In progress — Ingestion done, extending to embeddings + pgvector + retrieval + RAG.
 
-## What this project did
-
-This project builds the **ingestion and splitting** muscle for RAG (Retrieval Augmented Generation):
-
-1. **Extract text** from a PDF — reads all pages and joins them into one string
-2. **Chunk the text** — splits it into fixed-size pieces (default 1000 chars) for embedding later
-
-These chunks are the feed for embeddings when you add the full RAG pipeline (vector DB, retrieval, LLM).
+A RAG (Retrieval Augmented Generation) project for financial documents (10-K filings). Uses **pgvector**, **Ollama**, and **SEC EDGAR** data. Designed to be AWS-ready later (Bedrock, pgvector on RDS).
 
 ---
 
-## `ingest.py` — Step-by-step walkthrough
+## Table of Contents
 
-### Overview
+1. [What This Project Does](#what-this-project-does)
+2. [Tech Stack & Comparisons](#tech-stack--comparisons)
+3. [How We Get the Data](#how-we-get-the-data)
+4. [Converting Raw Formats to Text](#converting-raw-formats-to-text)
+5. [Project Structure](#project-structure)
+6. [Setup](#setup)
+7. [Run](#run)
+8. [What's Next](#whats-next)
+9. [Git Notes](#git-notes)
 
-The script does two things: (1) turn a PDF into raw text, and (2) split that text into chunks. Each step is explained below.
-
-### Step 1: Extract text from PDF
-
-```python
-def extract_text_from_pdf(path: str) -> str:
-    reader = PdfReader(path)
-    texts = []
-    for page in reader.pages:
-        texts.append(page.extract_text() or "")
-    return "\n".join(texts)
-```
-
-| Line | What it does |
-|------|--------------|
-| `reader = PdfReader(path)` | Opens the PDF file and creates a reader object. `path` is the file path (e.g. `"sample_10k.pdf"`). |
-| `texts = []` | Empty list to collect text from each page. |
-| `for page in reader.pages` | Loops over every page in the PDF. |
-| `page.extract_text()` | Gets the text content from that page. Returns `None` if the page has no extractable text (e.g. image-only). |
-| `or ""` | If `extract_text()` returns `None`, use `""` instead so we never append `None` to the list. |
-| `"\n".join(texts)` | Joins all page texts with newlines into one long string. |
-
-**Result:** One string containing the full document text.
+See **DATA_GUIDE.md** for more detail on SEC EDGAR, pipeline paths, and stack choices.
 
 ---
 
-### Step 2: Chunk the text
+## What This Project Does
 
-```python
-def simple_chunk(text: str, max_chars: int = 1000) -> list[str]:
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = min(start + max_chars, len(text))
-        chunks.append(text[start:end])
-        start = end
-    return chunks
-```
-
-| Line | What it does |
-|------|--------------|
-| `chunks = []` | Empty list to hold the chunks. |
-| `start = 0` | Index where the current chunk begins. |
-| `while start < len(text)` | Continue until we've processed the whole text. |
-| `end = min(start + max_chars, len(text))` | `end` is either `start + 1000` or `len(text)` if we're near the end (avoids going past the string). |
-| `chunks.append(text[start:end])` | Slice the text from `start` to `end` and add it as one chunk. |
-| `start = end` | Move the window forward for the next chunk. |
-
-**Why chunk?** Embedding models and LLMs have context limits. Chunking lets you retrieve only the most relevant slices instead of the whole document. 1000 characters is a common default for experiments.
-
-**Example:** 2500-character text with `max_chars=1000` → 3 chunks (chars 0–999, 1000–1999, 2000–2499).
+1. **Download** 10-K filings from SEC EDGAR (Apple, Alphabet)
+2. **Extract** text from the full submission (or convert PDF/HTML/XML via `process_documents.py`)
+3. **Chunk** text with overlap and token-aware sizing
+4. **Embed** chunks and **store** in pgvector
+5. **Retrieve** and **answer** with RAG (retrieval → prompt → LLM → citations)
 
 ---
 
-### Step 3: The main block
+## Tech Stack & Comparisons
 
-```python
-if __name__ == "__main__":
-    pdf_path = "sample_10k.pdf"
-    text = extract_text_from_pdf(pdf_path)
-    chunks = simple_chunk(text, max_chars=1000)
-    print(f"Total chunks: {len(chunks)}")
-    print("First chunk preview:\n", chunks[0][:500] if chunks else "(no text)")
+### Vector DB: pgvector (chosen)
+
+| | pgvector | Chroma |
+|--|----------|--------|
+| **Setup** | PostgreSQL + extension (Docker: one command) | `pip install chromadb` |
+| **Production readiness** | High — SQL, ACID, scales | Good for prototyping |
+| **Enterprise fit** | Common in AWS/RDS setups | Simpler, less ops |
+| **Why we chose it** | More prod-ready; aligns with Jefferies/AWS | — |
+
+```bash
+# pgvector with Docker
+docker run -d --name pgvector -p 5432:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg16
 ```
 
-| Line | What it does |
-|------|--------------|
-| `if __name__ == "__main__":` | Runs only when you execute `python ingest.py` directly, not when the file is imported. |
-| `pdf_path = "sample_10k.pdf"` | Path to the PDF (must be in the same folder or provide full path). |
-| `extract_text_from_pdf(pdf_path)` | Calls the extraction function → full text as one string. |
-| `simple_chunk(text, max_chars=1000)` | Splits the text into chunks of up to 1000 characters. |
-| `chunks[0][:500]` | First 500 characters of the first chunk — a quick sanity check. |
-| `if chunks else "(no text)"` | If the PDF had no text, avoids an error and prints a fallback message. |
+### LLM: Ollama (chosen for now)
+
+| | Ollama | OpenAI | Bedrock |
+|--|--------|--------|---------|
+| **Cost** | Free, local | Paid API | Paid (AWS) |
+| **Setup** | Install + pull model | API key | AWS account + access |
+| **Use case** | Local dev, learning | General production | AWS-native, enterprise |
+| **Why we chose it** | No API key; fast iteration | — | Target for Jefferies later |
+
+### Embeddings
+
+| | SentenceTransformers | Ollama (nomic-embed-text) | OpenAI | Bedrock Titan |
+|--|---------------------|---------------------------|--------|---------------|
+| **Cost** | Free | Free | Paid | Paid |
+| **Setup** | `pip install` | `ollama pull` | API key | AWS |
+| **Use case** | Local, good quality | Local | Production | AWS production |
 
 ---
 
-### Summary flow
+## How We Get the Data
+
+### Source: SEC EDGAR
+
+- **Website:** [sec.gov/edgar](https://www.sec.gov/edgar)
+- **Filing types:** 10-K (annual), 10-Q (quarterly), 8-K (current events)
+- **Tickers:** AAPL (Apple), GOOGL (Alphabet/Google), etc.
+
+### Path A: Direct txt (recommended)
+
+`download_financial_docs.py` downloads 10-Ks and produces txt directly:
+
+```bash
+python download_financial_docs.py
+```
+
+**Output:** `sec-edgar-filings/{ticker}/10-K/{accession}/full-submission.txt`
+
+No conversion step. Use these files for RAG.
+
+### Path B: Raw → Process (mimics real pipeline)
+
+When documents arrive as PDF, XML, or HTML:
+
+1. Put raw files in `data/`
+2. Run `process_documents.py`
+3. Output: `sec-edgar-filings/processed/*.txt`
+
+```bash
+python process_documents.py
+```
+
+### Path C: Manual download
+
+1. Go to [sec.gov/cgi-bin/browse-edgar](https://www.sec.gov/cgi-bin/browse-edgar)
+2. Search by ticker (e.g. AAPL, GOOGL)
+3. Filings → filter by **10-K**
+4. Open filing → **Documents** → download the main `.htm` (not "Inline XBRL Viewer")
+5. Save to `data/` → run `process_documents.py`
+
+### Pitfall: Inline XBRL Viewer
+
+The **"Inline XBRL Viewer"** link gives a small XML/HTML page that only loads the real document in an iframe. It has almost no content (~130 lines of viewer code). Do **not** use it as your source. Use **Documents** and the main `.htm` file, or Path A.
+
+### Exploration summary
+
+| Step | What we tried | Outcome |
+|------|---------------|---------|
+| Download source | SEC EDGAR | Free, no API key; 10-K best for RAG |
+| Get txt | `download_financial_docs.py` | Direct `full-submission.txt` in `sec-edgar-filings/` |
+| Manual download | "Inline XBRL Viewer" XML | Wrong file — viewer page, not content |
+| Manual download | Documents → main `.htm` | Correct — use this if not using script |
+| Raw → txt | `process_documents.py` | Converts PDF/HTML/XML in `data/` → `sec-edgar-filings/processed/` |
+| Vector DB | Chroma vs pgvector | Chose pgvector for prod readiness |
+| LLM | Ollama vs OpenAI vs Bedrock | Ollama for local dev; Bedrock for AWS later |
+
+---
+
+## Converting Raw Formats to Text
+
+In practice, documents come as PDF, HTML, XML, or Excel. We convert them before chunking.
+
+| Format | Tool | Difficulty |
+|--------|------|------------|
+| **HTML** | BeautifulSoup | Easy |
+| **PDF** | pypdf, PyMuPDF, pdfplumber | Medium (tables, layout) |
+| **XML** | BeautifulSoup, xml.etree | Easy |
+| **Excel** | pandas, openpyxl | Easy–Medium |
+| **Scanned PDF** | Tesseract OCR | Hard |
+
+`process_documents.py` handles XML, HTML, and PDF. For complex PDFs, consider `Unstructured.io` or cloud APIs (e.g. AWS Textract).
+
+---
+
+## Project Structure
 
 ```
-PDF file → extract_text_from_pdf() → full text string
-         → simple_chunk() → list of chunks
-         → (next week) embed each chunk → vector DB → retrieval
+tiny-rag-warmup/
+├── data/                    # Raw files (PDF, XML, HTML) for processing
+├── sec-edgar-filings/       # Downloaded 10-Ks
+│   ├── AAPL/10-K/.../full-submission.txt
+│   ├── GOOGL/10-K/.../full-submission.txt
+│   └── processed/          # Output from process_documents.py
+├── download_financial_docs.py   # SEC EDGAR download
+├── process_documents.py        # Raw → txt conversion
+├── ingest.py                   # Chunk, embed, store (to be extended)
+├── DATA_GUIDE.md               # Detailed data guide
+├── requirements.txt
+└── README.md
 ```
+
+---
 
 ## Setup
 
 ```bash
 python3 -m venv venv
-source venv/bin/activate   # On Windows: venv\Scripts\activate
+source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Get a sample PDF
+### pgvector (Docker)
 
-Save a long PDF as `sample_10k.pdf` in this folder. Options:
+```bash
+docker run -d --name pgvector -p 5432:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg16
+# Create DB: CREATE DATABASE rag_db; \c rag_db; CREATE EXTENSION vector;
+```
 
-- **Direct PDF:** [Alphabet 2024 10-K](https://abc.xyz/assets/77/51/9841ad5c4fbe85b4440c47a4df8d/goog-10-k-2024.pdf) — right-click → Save as
-- **SEC EDGAR:** [sec.gov/search-filings](https://www.sec.gov/search-filings) — search a company, find a 10-K, look for PDF attachments
-- Any long finance document from investor relations sites
+### Ollama
+
+```bash
+ollama pull llama3.2
+ollama pull nomic-embed-text
+```
+
+---
 
 ## Run
 
 ```bash
+# 1. Download 10-Ks (edit COMPANY_NAME, COMPANY_EMAIL in script first)
+python download_financial_docs.py
+
+# 2. Process raw files (if you have PDF/XML/HTML in data/)
+python process_documents.py
+
+# 3. Ingest (extend ingest.py to use txt + pgvector)
 python ingest.py
 ```
 
-Expected output: total chunk count and a preview of the first chunk.
+---
 
-## What's next
+## What's Next
 
-- **Next week:** Embed chunks, store in a vector DB, and build retrieval + LLM answering
+- [x] Extend `ingest.py`: load txt, chunk with overlap, embed, store in pgvector
+- [x] Implement `retrieve_context(query, k=5)` in `retrieve.py`
+- [ ] Implement `answer_with_rag` (retrieval → prompt → Ollama → citations)
+- [ ] Add FastAPI `/ask` endpoint
+- [ ] Evaluation script + Q&A pairs
+
+See **INGEST_GUIDE.md** for ingestion and retrieval setup.
 
 ---
 
-## Git Study Notes
-
-### `cd` (Change Directory)
+## Git Notes
 
 | Command | Purpose |
 |---------|---------|
-| `cd path` | Move into the given folder |
-| `cd ..` | Go up one level (parent folder) |
-| `cd` or `cd ~` | Go to your home directory |
-
-### Git commands used for this project
-
-| Command | Purpose |
-|---------|---------|
-| `git init` | Turn the current folder into a Git repo (creates a `.git` folder). Do this once per project. |
-| `git add .` | Stage all files for the next commit. The `.` means "everything in this directory." |
-| `git commit -m "message"` | Save a snapshot of staged files with a descriptive message. |
-| `git remote add origin <url>` | Link this repo to your GitHub repo. `origin` is the conventional name for the main remote. |
-| `git branch -M main` | Rename the current branch to `main` (in case it was `master`). |
-| `git push -u origin main` | Upload your commits to GitHub. `-u` sets `origin` as the default remote for future pushes. |
-
-### Typical daily workflow
-
-1. `git add .` — Stage your changes
-2. `git commit -m "Describe what you did"` — Save locally
-3. `git push` — Send to GitHub
+| `git add .` | Stage changes |
+| `git commit -m "message"` | Commit |
+| `git push` | Push to remote |
