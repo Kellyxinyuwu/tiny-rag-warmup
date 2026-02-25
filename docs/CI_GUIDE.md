@@ -4,7 +4,7 @@
 
 **File:** `.github/workflows/ci.yml`
 
-**Triggers:** Push and PR to `main`, `feature/organized`
+**Triggers:** Push and PR to `main`, `feature/final-organize`
 
 ## Jobs
 
@@ -18,23 +18,35 @@
 
 ```bash
 # Lint
-ruff check src/ tests/
+python3 -m ruff check src/ tests/
 
 # Test
-pytest tests/ -v
+python3 -m pytest tests/ -v
 ```
 
-## Adding branches
+## Branch configuration
 
-Edit `.github/workflows/ci.yml`:
+CI runs only on the branches you list in the workflow. You choose which branches to include.
 
 ```yaml
 on:
   push:
-    branches: [main, feature/organized, your-branch]
+    branches: [main, feature/final-organize]
   pull_request:
-    branches: [main, feature/organized, your-branch]
+    branches: [main, feature/final-organize]
 ```
+
+**What this means:**
+
+- **`push`** — CI runs when you push commits to any branch in the list.
+- **`pull_request`** — CI runs when you open or update a PR whose **base** (target) branch is in the list.
+
+**Why these branches?**
+
+- `main` — Default branch; CI runs on every merge.
+- `feature/final-organize` — Your active feature branch; CI runs before you merge to main.
+
+**Adding or changing branches:** Edit the `branches:` list. Add any branch you want CI to run on (e.g. `feature/new-feature`). CI is not a default GitHub feature—only branches you list will trigger it.
 
 ## Ruff config
 
