@@ -7,23 +7,23 @@ This guide helps you understand and navigate the codebase. Each file has a modul
 ## Pipeline Flow
 
 ```
-download_financial_docs.py  →  sec-edgar-filings/*.txt
-                                      ↓
-ingest.py: chunk → embed → store  →  pgvector (documents table)
-                                      ↓
-retrieve.py: embed query → SELECT by similarity  →  top-k chunks
-                                      ↓
-rag.py: build prompt → Ollama  →  answer with citations
-                                      ↓
-api.py: GET /ask  →  JSON response
-eval.py: run all Q&A  →  eval_results.xlsx
+scripts/download_financial_docs.py  →  sec-edgar-filings/*.txt
+                                              ↓
+src/tiny_rag/ingest.py: chunk → embed → store  →  pgvector (documents table)
+                                              ↓
+src/tiny_rag/retrieve.py: embed query → SELECT by similarity  →  top-k chunks
+                                              ↓
+src/tiny_rag/rag.py: build prompt → Ollama  →  answer with citations
+                                              ↓
+src/tiny_rag/api.py: GET /ask  →  JSON response
+src/tiny_rag/eval.py: run all Q&A  →  eval_results.xlsx
 ```
 
 ---
 
 ## File-by-File Walkthrough
 
-### ingest.py
+### src/tiny_rag/ingest.py
 
 **Purpose:** Turn 10-K txt files into embedded chunks in pgvector.
 
@@ -40,7 +40,7 @@ eval.py: run all Q&A  →  eval_results.xlsx
 
 ---
 
-### retrieve.py
+### src/tiny_rag/retrieve.py
 
 **Purpose:** Semantic search over stored chunks.
 
@@ -54,7 +54,7 @@ eval.py: run all Q&A  →  eval_results.xlsx
 
 ---
 
-### rag.py
+### src/tiny_rag/rag.py
 
 **Purpose:** End-to-end RAG: retrieve → prompt → LLM → answer.
 
@@ -69,7 +69,7 @@ eval.py: run all Q&A  →  eval_results.xlsx
 
 ---
 
-### api.py
+### src/tiny_rag/api.py
 
 **Purpose:** HTTP API for RAG queries.
 
@@ -82,7 +82,7 @@ Uses `rag.answer_with_rag()` and `rag.infer_ticker_from_query()`.
 
 ---
 
-### eval.py
+### src/tiny_rag/eval.py
 
 **Purpose:** Evaluate RAG on 50 Q&A pairs, check keywords, export to Excel.
 
@@ -132,7 +132,7 @@ Uses `rag.answer_with_rag()` and `rag.infer_ticker_from_query()`.
 
 ## Adding a New Company
 
-1. Add ticker to `download_financial_docs.py` (or download manually)
-2. Run `python ingest.py` (processes all filings in sec-edgar-filings/)
-3. Add to `TICKER_MAP` in rag.py: `"companyname": "TICKER"`
+1. Add ticker to `scripts/download_financial_docs.py` (or download manually)
+2. Run `python -m tiny_rag.ingest` (processes all filings in sec-edgar-filings/)
+3. Add to `TICKER_MAP` in `src/tiny_rag/rag.py`: `"companyname": "TICKER"`
 4. Add questions to `eval_qa.json` with `"ticker": "TICKER"`

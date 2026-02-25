@@ -9,14 +9,14 @@ GUIDE:
 4. call_ollama(prompt) → Send to Ollama llama3.2, get response
 5. answer_with_rag() → Orchestrates all above, returns {answer, sources}
 
-Run: python rag.py "What are Alphabet's main risks?"
+Run: python -m tiny_rag.rag "What are Alphabet's main risks?"
 Requires: Ollama running with llama3.2, ingested data
 """
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from retrieve import retrieve_context
+from .retrieve import retrieve_context
 
 
 def build_rag_prompt(query: str, contexts: list[dict]) -> str:

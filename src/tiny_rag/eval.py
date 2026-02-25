@@ -11,7 +11,7 @@ GUIDE:
 expected_keywords: You define in JSON. Eval checks if answer contains them.
   PASS = all found; FAIL = any missed; N/A = no keywords defined
 
-Run: python eval.py
+Run: python -m tiny_rag.eval
 Runtime: ~10–15 min for 50 questions (each ~10–20 seconds)
 """
 from dotenv import load_dotenv
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from rag import answer_with_rag, infer_ticker_from_query
+from .rag import answer_with_rag, infer_ticker_from_query
 
 
 def load_qa_pairs(path: str = "eval_qa.json") -> list[dict]:
@@ -92,7 +92,7 @@ def print_report(results: list[dict]) -> None:
         print()
 
 
-def save_to_excel(results: list[dict], path: str = "eval_results.xlsx") -> None:
+def save_to_excel(results: list[dict], path: str | Path = "eval_results.xlsx") -> None:
     """Save results to Excel with question and answer columns."""
     df = pd.DataFrame(results)
     df.to_excel(path, index=False, engine="openpyxl")
@@ -100,7 +100,8 @@ def save_to_excel(results: list[dict], path: str = "eval_results.xlsx") -> None:
 
 
 def main():
-    qa_path = Path("eval_qa.json")
+    project_root = Path(__file__).resolve().parent.parent.parent
+    qa_path = project_root / "eval_qa.json"
     if not qa_path.exists():
         print(f"Error: {qa_path} not found")
         return
@@ -109,7 +110,7 @@ def main():
     print(f"Running eval on {len(qa)} questions...\n")
     results = run_eval(qa)
     print_report(results)
-    save_to_excel(results)
+    save_to_excel(results, project_root / "eval_results.xlsx")
 
 
 if __name__ == "__main__":

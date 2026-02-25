@@ -4,11 +4,14 @@ Convert raw documents (XML, PDF, HTML) in data/ to .txt and store in sec-edgar-f
 This mimics the real pipeline: raw formats → processing → plain text for RAG.
 Note: For SEC EDGAR, download_financial_docs.py gives full-submission.txt directly.
       This script is for when you have XML/PDF/HTML from other sources (e.g. manual download).
+
+Run: python scripts/process_documents.py
 """
 from pathlib import Path
 
-INPUT_DIR = Path("data")
-OUTPUT_DIR = Path("sec-edgar-filings/processed")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+INPUT_DIR = PROJECT_ROOT / "data"
+OUTPUT_DIR = PROJECT_ROOT / "sec-edgar-filings" / "processed"
 MIN_TEXT_LENGTH = 1000  # Warn if extracted text is shorter (likely wrong file type)
 
 

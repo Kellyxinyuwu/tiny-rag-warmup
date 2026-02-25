@@ -9,7 +9,7 @@ GUIDE:
 4. embed_chunks()           → Embeds each chunk with SentenceTransformers all-MiniLM-L6-v2
 5. store_in_pgvector()      → Inserts chunks + embeddings into documents table
 
-Run: python ingest.py
+Run: python -m tiny_rag.ingest
 Requires: DATABASE_URL in .env, pgvector running, sec-edgar-filings/ populated
 """
 import os
@@ -21,8 +21,9 @@ import tiktoken
 
 load_dotenv()
 
-# Paths
-SEC_FILINGS_DIR = Path("sec-edgar-filings")
+# Paths relative to project root (parent of src/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+SEC_FILINGS_DIR = PROJECT_ROOT / "sec-edgar-filings"
 
 # Chunking: token-based sliding window (see README "Chunking Method")
 # 400 tokens ≈ 300 words; 100 overlap prevents cutting sentences
@@ -162,7 +163,7 @@ def ingest_all():
     files = find_filing_txt_files()
     if not files:
         print("No full-submission.txt files found in sec-edgar-filings/")
-        print("Run: python download_financial_docs.py")
+        print("Run: python scripts/download_financial_docs.py")
         return
 
     print(f"Found {len(files)} filing(s)")

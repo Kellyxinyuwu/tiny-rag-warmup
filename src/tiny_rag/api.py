@@ -10,7 +10,7 @@ GUIDE:
 Ticker is inferred from query if omitted (e.g. "Alphabet" → GOOGL).
 Uses rag.answer_with_rag() under the hood.
 
-Run: python api.py  or  uvicorn api:app --host 0.0.0.0 --port 8001
+Run: uvicorn tiny_rag.api:app --host 0.0.0.0 --port 8001
 """
 from dotenv import load_dotenv
 
@@ -19,7 +19,7 @@ load_dotenv()
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 
-from rag import answer_with_rag, infer_ticker_from_query
+from .rag import answer_with_rag, infer_ticker_from_query
 
 app = FastAPI(
     title="Tiny RAG API",

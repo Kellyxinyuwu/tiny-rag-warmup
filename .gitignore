@@ -5,3 +5,4 @@ __pycache__/
 *.pdf
 sec-edgar-filings/
 data/
+*.egg-info/

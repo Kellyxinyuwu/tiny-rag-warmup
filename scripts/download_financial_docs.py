@@ -1,14 +1,18 @@
 """
 Download financial documents from SEC EDGAR for the RAG project.
 Requires: pip install sec-edgar-downloader
+
+Run: python scripts/download_financial_docs.py
 """
-import os
 from pathlib import Path
+
+# Paths relative to project root (parent of scripts/)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # SEC requires a company name and email for programmatic access
 COMPANY_NAME = "University of Hong Kong"  # Change this
 COMPANY_EMAIL = "kellywxy@connect.hku.hk"  # Change this
-OUTPUT_DIR = Path("data")
+OUTPUT_DIR = PROJECT_ROOT / "data"
 
 # Tickers to download (add more as needed)
 TICKERS = ["AAPL", "GOOGL"]  # Apple, Alphabet (Google)
@@ -41,7 +45,7 @@ def extract_text_from_filings():
         print("Install beautifulsoup4: pip install beautifulsoup4")
         return
 
-    filings_dir = Path("sec-edgar-filings")
+    filings_dir = PROJECT_ROOT / "sec-edgar-filings"
     if not filings_dir.exists():
         print("Download filings first: run download_10k_filings()")
         return

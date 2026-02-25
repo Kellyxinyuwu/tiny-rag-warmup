@@ -8,7 +8,7 @@ GUIDE:
    - If ticker given: WHERE ticker = X (focused retrieval)
    - Order by embedding <=> query_embedding (cosine distance, smaller = more similar)
 
-Run: python retrieve.py "What are Apple's main risk factors?"
+Run: python -m tiny_rag.retrieve "What are Apple's main risk factors?"
 Requires: DATABASE_URL, ingested documents in pgvector
 """
 import logging
