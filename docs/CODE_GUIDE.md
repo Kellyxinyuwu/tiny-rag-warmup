@@ -1,138 +1,97 @@
-# Code Guide — Navigating the Project
-
-This guide helps you understand and navigate the codebase. Each file has a module-level docstring; this document ties them together.
+# Code Guide — Implementation Reference
 
 ---
 
-## Pipeline Flow
+## Pipeline
 
 ```
 scripts/download_financial_docs.py  →  sec-edgar-filings/*.txt
+scripts/process_documents.py       →  sec-edgar-filings/processed/*.txt
                                               ↓
-src/tiny_rag/ingest.py: chunk → embed → store  →  pgvector (documents table)
+tiny_rag.ingest                    →  pgvector (documents)
                                               ↓
-src/tiny_rag/retrieve.py: embed query → SELECT by similarity  →  top-k chunks
+tiny_rag.retrieve                   →  top-k chunks
                                               ↓
-src/tiny_rag/rag.py: build prompt → Ollama  →  answer with citations
-                                              ↓
-src/tiny_rag/api.py: GET /ask  →  JSON response
-src/tiny_rag/eval.py: run all Q&A  →  eval_results.xlsx
+tiny_rag.rag                       →  answer + citations
+tiny_rag.api                       →  GET /ask
+tiny_rag.eval                      →  eval_results.xlsx
 ```
 
 ---
 
-## File-by-File Walkthrough
+## Modules
 
-### src/tiny_rag/ingest.py
+### tiny_rag.ingest
 
-**Purpose:** Turn 10-K txt files into embedded chunks in pgvector.
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `find_filing_txt_files()` | `() -> list[tuple[Path, str]]` | Scan sec-edgar-filings for full-submission.txt |
+| `load_txt()` | `(path: Path) -> str` | Read file |
+| `chunk_with_overlap()` | `(text, chunk_size, overlap) -> list[str]` | Token-based sliding window |
+| `embed_chunks()` | `(chunks: list[str]) -> list[list[float]]` | SentenceTransformer encode |
+| `store_in_pgvector()` | `(chunks, embeddings, ticker, source) -> None` | INSERT into documents |
+| `ingest_all()` | `() -> None` | Full pipeline |
 
-| Function | What it does |
-|----------|--------------|
-| `find_filing_txt_files()` | Scans `sec-edgar-filings/{ticker}/10-K/*/full-submission.txt` |
-| `load_txt(path)` | Reads file as UTF-8 text |
-| `chunk_with_overlap(text, 400, 100)` | Token-based sliding window (tiktoken cl100k_base) |
-| `embed_chunks(chunks)` | SentenceTransformer all-MiniLM-L6-v2 → 384-dim vectors |
-| `init_pgvector(conn)` | CREATE EXTENSION vector, CREATE TABLE documents |
-| `store_in_pgvector()` | INSERT chunks + embeddings |
-
-**Config:** `CHUNK_SIZE_TOKENS`, `CHUNK_OVERLAP_TOKENS`, `DATABASE_URL`
+**Config:** `CHUNK_SIZE_TOKENS=400`, `CHUNK_OVERLAP_TOKENS=100`, `DATABASE_URL`
 
 ---
 
-### src/tiny_rag/retrieve.py
+### tiny_rag.retrieve
 
-**Purpose:** Semantic search over stored chunks.
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `embed_query()` | `(query: str) -> list[float]` | Encode query |
+| `retrieve_context()` | `(query, k=5, ticker=None) -> list[dict]` | pgvector `<=>` search |
 
-| Function | What it does |
-|----------|--------------|
-| `_get_embedding_model()` | Lazy-load and cache SentenceTransformer (avoids reload each query) |
-| `embed_query(query)` | Encode query → 384-dim vector |
-| `retrieve_context(query, k, ticker)` | pgvector `ORDER BY embedding <=> query LIMIT k`; optional `WHERE ticker = X` |
-
-**Optimizations:** Model caching, logging suppression for BertModel warning.
+**Returns:** `[{"content", "ticker", "source"}, ...]`
 
 ---
 
-### src/tiny_rag/rag.py
+### tiny_rag.rag
 
-**Purpose:** End-to-end RAG: retrieve → prompt → LLM → answer.
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `answer_with_rag()` | `(query, k=5, ticker=None) -> dict` | Full RAG pipeline |
+| `infer_ticker_from_query()` | `(query: str) -> str \| None` | Map company name → ticker |
+| `build_rag_prompt()` | `(query, contexts) -> str` | Format prompt |
+| `call_ollama()` | `(prompt, model="llama3.2") -> str` | LLM call |
 
-| Function | What it does |
-|----------|--------------|
-| `infer_ticker_from_query(query)` | "Alphabet" → GOOGL, "Apple" → AAPL (TICKER_MAP) |
-| `build_rag_prompt(query, contexts)` | Format context blocks [1], [2], ... + citation instructions |
-| `call_ollama(prompt)` | ollama.chat(model="llama3.2") |
-| `answer_with_rag(query, k, ticker)` | Full pipeline; returns `{answer, sources}` |
-
-**Config:** `TICKER_MAP`, default `k=6`
+**Config:** `TICKER_MAP` (rag.py)
 
 ---
 
-### src/tiny_rag/api.py
+### tiny_rag.api
 
-**Purpose:** HTTP API for RAG queries.
-
-| Endpoint | Params | Returns |
-|----------|--------|---------|
-| `GET /` | — | `{status: "ok", docs: "/docs"}` |
+| Endpoint | Params | Response |
+|----------|--------|----------|
+| `GET /` | — | `{status, docs}` |
 | `GET /ask` | `q`, `k`, `ticker` | `{answer, sources_count, ticker_filter}` |
 
-Uses `rag.answer_with_rag()` and `rag.infer_ticker_from_query()`.
+---
+
+### tiny_rag.eval
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `load_qa_pairs()` | `(path="eval_qa.json") -> list[dict]` | Load Q&A |
+| `run_eval()` | `(qa_pairs, k=6) -> list[dict]` | Run RAG + keyword check |
+| `save_to_excel()` | `(results, path) -> None` | Export |
+
+**eval_qa.json:** `{"q": str, "ticker": str?, "expected_keywords": list[str]?}`
 
 ---
 
-### src/tiny_rag/eval.py
-
-**Purpose:** Evaluate RAG on 50 Q&A pairs, check keywords, export to Excel.
-
-| Function | What it does |
-|----------|--------------|
-| `load_qa_pairs()` | Load eval_qa.json |
-| `run_eval()` | For each: answer_with_rag → keyword check → record |
-| `print_report()` | Summary + per-question details |
-| `save_to_excel()` | Write eval_results.xlsx |
-
-**eval_qa.json structure:**
-```json
-{"q": "What are Alphabet's main risks?", "ticker": "GOOGL", "expected_keywords": ["cybersecurity", "risk"]}
-```
-
----
-
-## Key Concepts
-
-### Chunking (ingest.py)
-
-- **Token-based:** tiktoken cl100k_base (same as GPT-4)
-- **Fixed size:** 400 tokens per chunk
-- **Overlap:** 100 tokens between consecutive chunks
-- **Stride:** 300 tokens (400 − 100)
-
-### Retrieval (retrieve.py)
-
-- **Similarity:** pgvector `<=>` = cosine distance (lower = more similar)
-- **Ticker filter:** Optional `WHERE ticker = 'GOOGL'` for company-specific questions
-
-### RAG (rag.py)
-
-- **Prompt:** Context blocks labeled [1], [2], ... + "Cite sources with [1], [2], etc."
-- **LLM:** Ollama llama3.2 (local, no API key)
-
----
-
-## Environment Variables
+## Environment
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | PostgreSQL connection string (see .env.example) |
-| `HF_TOKEN` | Hugging Face token (optional, for faster model downloads) |
+| `DATABASE_URL` | PostgreSQL + pgvector |
+| `HF_TOKEN` | Hugging Face (optional) |
 
 ---
 
-## Adding a New Company
+## Extending
 
-1. Add ticker to `scripts/download_financial_docs.py` (or download manually)
-2. Run `python -m tiny_rag.ingest` (processes all filings in sec-edgar-filings/)
-3. Add to `TICKER_MAP` in `src/tiny_rag/rag.py`: `"companyname": "TICKER"`
-4. Add questions to `eval_qa.json` with `"ticker": "TICKER"`
+**Add ticker:** Update `TICKER_MAP` in `rag.py`; add to `download_financial_docs.py` TICKERS.
+
+**Add company to eval:** Append to `eval_qa.json` with `q`, `ticker`, `expected_keywords`.
