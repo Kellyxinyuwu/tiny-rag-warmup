@@ -16,7 +16,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from .logging_config import get_logger
+from .retry_config import retry_ollama
 from .retrieve import retrieve_context
+
+logger = get_logger(__name__)
 
 
 def build_rag_prompt(query: str, contexts: list[dict]) -> str:
@@ -39,6 +43,7 @@ Question: {query}
 Answer (with citations):"""
 
 
+@retry_ollama
 def call_ollama(prompt: str, model: str = "llama3.2") -> str:
     """Call Ollama LLM and return the response text."""
     import ollama
@@ -94,6 +99,8 @@ if __name__ == "__main__":
 
     query = sys.argv[1] if len(sys.argv) > 1 else "What are Apple's main risk factors?"
     ticker = infer_ticker_from_query(query)
+    logger.info("rag_query", query=query, ticker=ticker)
     result = answer_with_rag(query, k=6, ticker=ticker)
+    logger.info("rag_answer", sources=len(result["sources"]), answer_len=len(result["answer"]))
     print("Answer:\n", result["answer"])
     print("\nSources:", len(result["sources"]))

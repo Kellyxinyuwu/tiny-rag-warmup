@@ -65,6 +65,7 @@ tiny_rag.eval                      →  eval_results.xlsx
 | Endpoint | Params | Response |
 |----------|--------|----------|
 | `GET /` | — | `{status, docs}` |
+| `GET /health` | — | `{status, database, ollama}` — 200 if healthy, 503 if not |
 | `GET /ask` | `q`, `k`, `ticker` | `{answer, sources_count, ticker_filter}` |
 
 ---
@@ -78,6 +79,17 @@ tiny_rag.eval                      →  eval_results.xlsx
 | `save_to_excel()` | `(results, path) -> None` | Export |
 
 **eval_qa.json:** `{"q": str, "ticker": str?, "expected_keywords": list[str]?}`
+
+---
+
+## Retries
+
+`retry_config.py` provides `@retry_db` and `@retry_ollama` decorators. Applied to:
+- `retrieve_context` (DB)
+- `store_in_pgvector` (DB)
+- `call_ollama` (LLM)
+
+Config: 3 attempts, exponential backoff 1s–10s.
 
 ---
 

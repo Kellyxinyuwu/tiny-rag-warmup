@@ -1,0 +1,12 @@
+# Ruff lint configuration
+# https://docs.astral.sh/ruff/
+
+target-version = "py310"
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]  # Line too long - handled by formatter
+
+[lint.per-file-ignores]
+"tests/*" = ["S101"]  # Allow assert in tests

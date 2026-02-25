@@ -21,6 +21,11 @@ import tiktoken
 
 load_dotenv()
 
+from .logging_config import get_logger
+from .retry_config import retry_db
+
+logger = get_logger(__name__)
+
 # Paths relative to project root (parent of src/)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SEC_FILINGS_DIR = PROJECT_ROOT / "sec-edgar-filings"
@@ -131,6 +136,7 @@ def init_pgvector(conn):
     conn.commit()
 
 
+@retry_db
 def store_in_pgvector(
     chunks: list[str],
     embeddings: list[list[float]],
@@ -162,26 +168,25 @@ def ingest_all():
     """Load filings, chunk, embed, and store in pgvector."""
     files = find_filing_txt_files()
     if not files:
-        print("No full-submission.txt files found in sec-edgar-filings/")
-        print("Run: python scripts/download_financial_docs.py")
+        logger.warning("no_filings_found", hint="Run python scripts/download_financial_docs.py")
         return
 
-    print(f"Found {len(files)} filing(s)")
+    logger.info("ingest_start", filings_count=len(files))
 
     for path, ticker in files:
-        print(f"\nProcessing {ticker}...")
+        logger.info("processing_ticker", ticker=ticker)
         text = load_txt(path)
-        print(f"  Loaded {len(text):,} chars")
+        logger.info("loaded", ticker=ticker, chars=len(text))
 
         chunks = chunk_with_overlap(
             text,
             chunk_size=CHUNK_SIZE_TOKENS,
             overlap=CHUNK_OVERLAP_TOKENS,
         )
-        print(f"  Chunked into {len(chunks)} chunks")
+        logger.info("chunked", ticker=ticker, chunks=len(chunks))
 
         embeddings = embed_chunks(chunks)
-        print(f"  Embedded {len(embeddings)} chunks")
+        logger.info("embedded", ticker=ticker, count=len(embeddings))
 
         store_in_pgvector(
             chunks=chunks,
@@ -189,9 +194,9 @@ def ingest_all():
             ticker=ticker,
             source=str(path),
         )
-        print(f"  Stored in pgvector")
+        logger.info("stored", ticker=ticker)
 
-    print("\nDone. Ready for retrieval.")
+    logger.info("ingest_complete")
 
 
 if __name__ == "__main__":

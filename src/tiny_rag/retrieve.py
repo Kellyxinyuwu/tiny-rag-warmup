@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from .retry_config import retry_db
+
 # Suppress SentenceTransformers BertModel load report (UNEXPECTED key warnings)
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 
@@ -47,6 +49,7 @@ def embed_query(query: str) -> list[float]:
     return _get_embedding_model().encode([query])[0].tolist()
 
 
+@retry_db
 def retrieve_context(query: str, k: int = 5, ticker: str | None = None) -> list[dict]:
     """
     Retrieve top-k most relevant chunks for a query.
@@ -99,10 +102,16 @@ def retrieve_context(query: str, k: int = 5, ticker: str | None = None) -> list[
 if __name__ == "__main__":
     import sys
 
+    from .logging_config import get_logger
+
+    logger = get_logger(__name__)
     query = sys.argv[1] if len(sys.argv) > 1 else "What are Apple's main risk factors?"
     results = retrieve_context(query, k=6)
-    print(f"Query: {query}\n")
+    logger.info("retrieve_query", query=query, results=len(results))
     for i, r in enumerate(results, 1):
-        print(f"--- Result {i} ({r['ticker']}) ---")
-        print(r["content"][:500] + "..." if len(r["content"]) > 500 else r["content"])
-        print()
+        logger.info(
+            "retrieve_result",
+            index=i,
+            ticker=r["ticker"],
+            content_preview=r["content"][:500] + ("..." if len(r["content"]) > 500 else ""),
+        )

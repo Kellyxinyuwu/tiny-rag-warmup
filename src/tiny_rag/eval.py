@@ -19,6 +19,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import json
+from .logging_config import get_logger
+
+logger = get_logger(__name__)
 import time
 from pathlib import Path
 
@@ -40,11 +43,11 @@ def run_eval(qa_pairs: list[dict], k: int = 6) -> list[dict]:
     for i, item in enumerate(qa_pairs):
         q = item["q"]
         ticker = item.get("ticker") or infer_ticker_from_query(q)
-        print(f"  [{i + 1}/{total}] {q[:60]}{'...' if len(q) > 60 else ''}")
+        logger.info("eval_progress", index=i + 1, total=total, question=q[:60])
         start = time.perf_counter()
         result = answer_with_rag(q, k=k, ticker=ticker)
         elapsed = time.perf_counter() - start
-        print(f"       -> done in {elapsed:.1f}s")
+        logger.info("eval_done", index=i + 1, elapsed_sec=round(elapsed, 1))
 
         # Check expected keywords if provided
         expected = item.get("expected_keywords", [])
@@ -73,41 +76,43 @@ def print_report(results: list[dict]) -> None:
     failed = sum(1 for r in results if r["passed"] == "FAIL")
     no_check = sum(1 for r in results if r["passed"] == "N/A")
 
-    print("=" * 60)
-    print("RAG EVALUATION REPORT")
-    print("=" * 60)
-    print(f"Total questions: {total}")
-    if no_check < total:
-        print(f"Passed (keywords): {passed}")
-        print(f"Failed (keywords): {failed}")
-    print(f"No keyword check: {no_check}")
-    print()
+    logger.info(
+        "eval_report",
+        total=total,
+        passed=passed,
+        failed=failed,
+        no_check=no_check,
+    )
 
     for i, r in enumerate(results, 1):
-        print(f"[{i}] Q: {r['question']}")
-        print(f"    Ticker: {r['ticker']} | Sources: {r['sources_count']} | Time: {r['time_sec']}s")
-        if r["passed"] != "N/A":
-            print(f"    Keywords: {r['passed']} (found: {r['keywords_found']}, missed: {r['keywords_missed']})")
-        print(f"    Answer preview: {r['answer'][:150]}...")
-        print()
+        logger.info(
+            "eval_result",
+            index=i,
+            question=r["question"],
+            ticker=r["ticker"],
+            sources=r["sources_count"],
+            time_sec=r["time_sec"],
+            passed=r["passed"],
+            answer_preview=r["answer"][:150],
+        )
 
 
 def save_to_excel(results: list[dict], path: str | Path = "eval_results.xlsx") -> None:
     """Save results to Excel with question and answer columns."""
     df = pd.DataFrame(results)
     df.to_excel(path, index=False, engine="openpyxl")
-    print(f"Results saved to {path}")
+    logger.info("eval_saved", path=str(path))
 
 
 def main():
     project_root = Path(__file__).resolve().parent.parent.parent
     qa_path = project_root / "eval_qa.json"
     if not qa_path.exists():
-        print(f"Error: {qa_path} not found")
+        logger.error("eval_qa_not_found", path=str(qa_path))
         return
 
     qa = load_qa_pairs(str(qa_path))
-    print(f"Running eval on {len(qa)} questions...\n")
+    logger.info("eval_start", questions=len(qa))
     results = run_eval(qa)
     print_report(results)
     save_to_excel(results, project_root / "eval_results.xlsx")

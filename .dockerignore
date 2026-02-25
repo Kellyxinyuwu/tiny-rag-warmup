@@ -1,0 +1,15 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.git/
+.gitignore
+.env
+*.pdf
+sec-edgar-filings/
+data/
+eval_results.xlsx
+docs/
+scripts/
+*.md
