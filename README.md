@@ -1,4 +1,4 @@
-# SEC 10K RAG — Financial Documents
+# SEC 10-K RAG — Financial Documents
 
 RAG pipeline for SEC 10-K filings. Ingest → vector store (pgvector) → retrieve → LLM (Ollama) → FastAPI.
 
